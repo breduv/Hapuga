@@ -1,10 +1,9 @@
-from logging import getLogger
-
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
+from loguru import logger
 
 from app.bot.router import setup_router
-from app.core import Settings
+from app.core.config import Settings
 from app.providers.cover import CoverProvider
 from app.providers.gallerydl import GallerydlProvider
 from app.providers.spotify import SpotifyProvider
@@ -12,12 +11,10 @@ from app.providers.ytdlp import YtdlpProvider
 from app.services.download_service import DownloadService
 from app.services.search_service import SearchService
 
-logger = getLogger(__name__)
-
 
 async def run_application(settings: Settings) -> None:
     logger.info(
-        "Initializing application search_limit=%d max_upload_size_mb=%d media_proxy=%s telegram_proxy=%s inline_cache_chat_id=%s",
+        "Initializing application search_limit={} max_upload_size_mb={} media_proxy={} telegram_proxy={} inline_cache_chat_id={}",
         settings.search_limit,
         settings.max_upload_size_mb,
         settings.media_proxy is not None,
