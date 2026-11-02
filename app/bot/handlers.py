@@ -1,5 +1,4 @@
 import asyncio
-from logging import getLogger
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from urllib.parse import urlparse
@@ -21,6 +20,7 @@ from aiogram.types import (
     InputTextMessageContent,
     Message,
 )
+from loguru import logger
 
 from app.bot.keyboard import build_search_results_keyboard
 from app.errors.base import (
@@ -30,8 +30,6 @@ from app.errors.base import (
 )
 from app.services.download_service import DownloadService
 from app.services.search_service import SearchService
-
-logger = getLogger(__name__)
 
 
 class BotHandlers:
@@ -86,7 +84,7 @@ class BotHandlers:
                 return
 
             logger.info(
-                "Text request received user_id=%s chat_id=%s text_length=%d",
+                "Text request received user_id={} chat_id={} text_length={}",
                 msg.from_user.id,
                 msg.chat.id,
                 len(msg.text),
@@ -95,7 +93,7 @@ class BotHandlers:
             response = await self.search_service.search(msg.text)
 
             if response.get("audio") is not None:
-                logger.info("Audio request resolved user_id=%s", msg.from_user.id)
+                logger.info("Audio request resolved user_id={}", msg.from_user.id)
                 loading_msg = await msg.answer("Скачиваю...")
                 try:
                     with TemporaryDirectory() as temp_dir:
@@ -113,14 +111,14 @@ class BotHandlers:
                             if cover_path is not None
                             else None,
                         )
-                        logger.info("Audio sent user_id=%s", msg.from_user.id)
+                        logger.info("Audio sent user_id={}", msg.from_user.id)
                 finally:
                     await self._delete_message(loading_msg)
 
                 return
 
             if response.get("video") is not None:
-                logger.info("Video request resolved user_id=%s", msg.from_user.id)
+                logger.info("Video request resolved user_id={}", msg.from_user.id)
                 loading_msg = await msg.answer("Скачиваю...")
                 try:
                     with TemporaryDirectory() as temp_dir:
@@ -132,14 +130,14 @@ class BotHandlers:
                         await msg.answer_video(
                             video=FSInputFile(file_path), supports_streaming=True
                         )
-                        logger.info("Video sent user_id=%s", msg.from_user.id)
+                        logger.info("Video sent user_id={}", msg.from_user.id)
                 finally:
                     await self._delete_message(loading_msg)
 
                 return
 
             if response.get("photo") is not None:
-                logger.info("Photo request resolved user_id=%s", msg.from_user.id)
+                logger.info("Photo request resolved user_id={}", msg.from_user.id)
                 loading_msg = await msg.answer("Скачиваю...")
                 try:
                     with TemporaryDirectory() as temp_dir:
@@ -150,7 +148,7 @@ class BotHandlers:
 
                         await self._send_photos(msg, photo_paths)
                         logger.info(
-                            "Gallery sent user_id=%s photos_count=%d",
+                            "Gallery sent user_id={} photos_count={}",
                             msg.from_user.id,
                             len(photo_paths),
                         )
@@ -169,7 +167,7 @@ class BotHandlers:
 
             await msg.answer(text, reply_markup=keyboard)
             logger.info(
-                "Selection keyboard sent user_id=%s options_count=%d",
+                "Selection keyboard sent user_id={} options_count={}",
                 msg.from_user.id,
                 len(response),
             )
@@ -205,7 +203,7 @@ class BotHandlers:
             data = callback.data
 
             logger.info(
-                "Callback received user_id=%s chat_id=%s callback_type=%s",
+                "Callback received user_id={} chat_id={} callback_type={}",
                 callback.from_user.id,
                 msg.chat.id,
                 data.partition(":")[0],
@@ -240,7 +238,7 @@ class BotHandlers:
                             else None,
                         )
                         logger.info(
-                            "Spotify audio sent user_id=%s", callback.from_user.id
+                            "Spotify audio sent user_id={}", callback.from_user.id
                         )
                 finally:
                     await self._delete_message(loading_msg)
@@ -279,14 +277,14 @@ class BotHandlers:
                                 else None,
                             )
                             logger.info(
-                                "YouTube audio sent user_id=%s", callback.from_user.id
+                                "YouTube audio sent user_id={}", callback.from_user.id
                             )
                         else:
                             await msg.answer_video(
                                 video=FSInputFile(file_path), supports_streaming=True
                             )
                             logger.info(
-                                "YouTube video sent user_id=%s format_id=%s",
+                                "YouTube video sent user_id={} format_id={}",
                                 callback.from_user.id,
                                 format_id,
                             )
@@ -322,12 +320,14 @@ class BotHandlers:
                     inline_query_id=inline_query.id, results=[], cache_time=1
                 )
             except TelegramAPIError:
-                logger.warning("Failed to answer empty inline query", exc_info=True)
+                logger.opt(exception=True).warning(
+                    "Failed to answer empty inline query"
+                )
             return
 
         try:
             logger.info(
-                "Inline request received user_id=%s query_length=%d",
+                "Inline request received user_id={} query_length={}",
                 inline_query.from_user.id,
                 len(query),
             )
@@ -348,7 +348,7 @@ class BotHandlers:
             )
 
             logger.info(
-                "Inline placeholder answered user_id=%s",
+                "Inline placeholder answered user_id={}",
                 inline_query.from_user.id,
             )
         except TelegramAPIError:
@@ -368,13 +368,13 @@ class BotHandlers:
 
         if chosen_inline_result.inline_message_id is None:
             logger.warning(
-                "Chosen inline result without inline_message_id user_id=%s",
+                "Chosen inline result without inline_message_id user_id={}",
                 chosen_inline_result.from_user.id,
             )
             return
 
         logger.info(
-            "Chosen inline result received user_id=%s result_id=%s query_length=%d",
+            "Chosen inline result received user_id={} result_id={} query_length={}",
             chosen_inline_result.from_user.id,
             chosen_inline_result.result_id,
             len(query),
@@ -407,15 +407,14 @@ class BotHandlers:
                 )
 
             logger.info(
-                "Chosen inline result processed user_id=%s",
+                "Chosen inline result processed user_id={}",
                 chosen_inline_result.from_user.id,
             )
         except TelegramForbiddenError:
-            logger.warning(
-                "Inline upload target is unavailable user_id=%s cache_chat_id=%s",
+            logger.opt(exception=True).warning(
+                "Inline upload target is unavailable user_id={} cache_chat_id={}",
                 chosen_inline_result.from_user.id,
                 self.inline_cache_chat_id,
-                exc_info=True,
             )
             public_message = (
                 "Сначала открой бота в личке, потом повтори inline-запрос"
@@ -569,7 +568,7 @@ class BotHandlers:
 
         for start in range(0, len(photo_paths), max_group_size):
             batch = photo_paths[start : start + max_group_size]
-            logger.debug("Sending photo batch photos_count=%d", len(batch))
+            logger.debug("Sending photo batch photos_count={}", len(batch))
 
             if len(batch) == 1:
                 await msg.answer_photo(photo=FSInputFile(batch[0]))
@@ -585,15 +584,14 @@ class BotHandlers:
         context: str,
         exc: AppError,
     ) -> None:
-        logger.warning(
-            "Handled request error context=%s code=%s component=%s operation_name=%s message=%s details=%s",
+        logger.opt(exception=exc).warning(
+            "Handled request error context={} code={} component={} operation_name={} message={} details={}",
             context,
             exc.code,
             exc.component,
             exc.operation_name,
             exc.message,
             exc.details,
-            exc_info=exc,
         )
 
     @staticmethod
@@ -601,7 +599,7 @@ class BotHandlers:
         try:
             await msg.delete()
         except Exception:
-            logger.warning("Failed to delete message", exc_info=True)
+            logger.opt(exception=True).warning("Failed to delete message")
 
     @staticmethod
     async def _send_error(msg: Message, public_message: str) -> None:
@@ -647,4 +645,6 @@ class BotHandlers:
                 text=public_message,
             )
         except TelegramAPIError:
-            logger.warning("Failed to edit inline message with error", exc_info=True)
+            logger.opt(exception=True).warning(
+                "Failed to edit inline message with error"
+            )

@@ -1,10 +1,10 @@
 import asyncio
-from logging import getLogger
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 import aiohttp
 from aiohttp_socks import ProxyConnector
+from loguru import logger
 from mutagen._util import MutagenError
 from mutagen.easyid3 import EasyID3
 from mutagen.id3 import ID3
@@ -17,8 +17,6 @@ from app.errors.base import (
     ProviderTimeoutError,
     UnexpectedResponseError,
 )
-
-logger = getLogger(__name__)
 
 
 class CoverProvider:
@@ -51,7 +49,7 @@ class CoverProvider:
                 connector = ProxyConnector.from_url(proxy_url, rdns=rdns)
 
         logger.debug(
-            "Cover download started filename=%s proxy=%s",
+            "Cover download started filename={} proxy={}",
             filename,
             self.proxy is not None,
         )
@@ -110,7 +108,7 @@ class CoverProvider:
                 public_message="Не удалось скачать обложку трека. Попробуй позже",
             ) from exc
 
-        logger.info("Cover downloaded size_bytes=%d", len(content))
+        logger.info("Cover downloaded size_bytes={}", len(content))
         return cover_path
 
     def _set_mp3_cover(self, mp3_path: Path, cover_path: Path) -> None:

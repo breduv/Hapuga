@@ -1,19 +1,19 @@
 import asyncio
-import logging
 import sys
 
-from app.application import run_application
-from app.core import configure_logging, get_settings
+from loguru import logger
 
-logger = logging.getLogger(__name__)
+from app.application import run_application
+from app.core.config import get_settings
+from app.core.logging import configure_logging
 
 
 def main() -> int:
-    configure_logging()
+    configure_logging("INFO")
 
     try:
         settings = get_settings()
-        configure_logging(getattr(logging, settings.log_level))
+        configure_logging(settings.log_level)
         asyncio.run(run_application(settings))
     except KeyboardInterrupt:
         logger.info("Application stopped by user")

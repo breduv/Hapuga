@@ -1,10 +1,10 @@
 import asyncio
 import json
 import subprocess
-from logging import getLogger
 from pathlib import Path
 from typing import Any, cast
 
+from loguru import logger
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError as YtdlpDownloadError
 
@@ -16,8 +16,6 @@ from app.errors.base import (
     UnexpectedResponseError,
 )
 from app.models.media import AvailableVideoFormat
-
-logger = getLogger(__name__)
 
 
 class YtdlpProvider:
@@ -59,7 +57,7 @@ class YtdlpProvider:
         }[operation]
 
         logger.debug(
-            "yt-dlp extraction started operation_name=%s target_type=%s",
+            "yt-dlp extraction started operation_name={} target_type={}",
             operation,
             "url" if target.startswith(("http://", "https://")) else "search",
         )
@@ -89,7 +87,7 @@ class YtdlpProvider:
 
             logger.warning(
                 "yt-dlp extraction failed without cookies, retrying with cookies "
-                "operation_name=%s details=%s",
+                "operation_name={} details={}",
                 operation,
                 str(exc),
             )
@@ -122,7 +120,7 @@ class YtdlpProvider:
                 ) from retry_exc
 
             logger.info(
-                "yt-dlp extraction succeeded with cookies operation_name=%s",
+                "yt-dlp extraction succeeded with cookies operation_name={}",
                 operation,
             )
 
@@ -137,7 +135,7 @@ class YtdlpProvider:
         entries = info.get("entries")
 
         if entries is None:
-            logger.debug("yt-dlp extraction completed operation_name=%s", operation)
+            logger.debug("yt-dlp extraction completed operation_name={}", operation)
             return cast(dict[str, Any], info)
 
         if not isinstance(entries, list):
@@ -166,7 +164,7 @@ class YtdlpProvider:
                 public_message=public_messages["unexpected_response"],
             )
 
-        logger.debug("yt-dlp extraction completed operation_name=%s", operation)
+        logger.debug("yt-dlp extraction completed operation_name={}", operation)
         return cast(dict[str, Any], entry)
 
     def _download_audio_sync(
@@ -240,7 +238,7 @@ class YtdlpProvider:
                 break
 
         logger.info(
-            "Audio file prepared media_id=%s size_bytes=%d cover=%s",
+            "Audio file prepared media_id={} size_bytes={} cover={}",
             media_id,
             filesize,
             cover_path is not None,
@@ -390,7 +388,7 @@ class YtdlpProvider:
                     )
 
                 logger.info(
-                    "Video file prepared media_id=%s size_bytes=%d format_id=%s",
+                    "Video file prepared media_id={} size_bytes={} format_id={}",
                     media_id,
                     filesize,
                     format_id or "auto",
@@ -410,7 +408,7 @@ class YtdlpProvider:
             banned_format_ids.update(used_format_ids)
 
             logger.warning(
-                "Downloaded invalid media, retrying media_id=%s has_video=%s has_audio=%s used_formats=%s attempt=%d",
+                "Downloaded invalid media, retrying media_id={} has_video={} has_audio={} used_formats={} attempt={}",
                 media_id,
                 has_video,
                 has_audio,
@@ -479,7 +477,7 @@ class YtdlpProvider:
 
             logger.warning(
                 "yt-dlp format extraction failed without cookies, retrying with cookies "
-                "operation_name=get_video_formats details=%s",
+                "operation_name=get_video_formats details={}",
                 str(exc),
             )
 
@@ -587,7 +585,7 @@ class YtdlpProvider:
                 public_message="У этого видео не нашлось доступных форматов",
             )
 
-        logger.debug("Video formats extracted formats_count=%d", len(result))
+        logger.debug("Video formats extracted formats_count={}", len(result))
         return sorted(result, key=lambda item: item.height, reverse=True)
 
     async def get_video_formats(self, url: str) -> list[AvailableVideoFormat]:

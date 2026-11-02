@@ -1,6 +1,7 @@
-from logging import getLogger
 from pathlib import Path
 from urllib.parse import urlparse
+
+from loguru import logger
 
 from app.errors.base import DownloadError
 from app.models.search import TIKTOK_HOSTS
@@ -8,8 +9,6 @@ from app.providers.cover import CoverProvider
 from app.providers.gallerydl import GallerydlProvider
 from app.providers.spotify import SpotifyProvider
 from app.providers.ytdlp import YtdlpProvider
-
-logger = getLogger(__name__)
 
 
 class DownloadService:
@@ -34,7 +33,7 @@ class DownloadService:
 
         if value is not None:
             logger.info(
-                "Audio download started metadata=%s",
+                "Audio download started metadata={}",
                 "title" in media and "artist" in media,
             )
             audio_path, cover_path = await self.ytdlp_provider.download_audio(
@@ -60,7 +59,7 @@ class DownloadService:
             if cover_path is not None:
                 await self.cover_provaider.set_mp3_cover(audio_path, cover_path)
 
-            logger.info("Audio download completed cover=%s", cover_path is not None)
+            logger.info("Audio download completed cover={}", cover_path is not None)
             return audio_path, cover_path
 
         logger.info("Video download started")
@@ -76,7 +75,7 @@ class DownloadService:
                 raise
 
             logger.warning(
-                "yt-dlp TikTok download failed, trying gallery-dl fallback details=%s",
+                "yt-dlp TikTok download failed, trying gallery-dl fallback details={}",
                 exc.details,
             )
             video_path = await self.gallerydl_provider.download_video(
@@ -93,13 +92,13 @@ class DownloadService:
             url=url,
             output_dir=output_dir,
         )
-        logger.info("Gallery download completed photos_count=%d", len(photo_paths))
+        logger.info("Gallery download completed photos_count={}", len(photo_paths))
         return photo_paths
 
     async def download_on_spotify(
         self, track_id: str, output_dir: Path
     ) -> tuple[Path, Path | None]:
-        logger.info("Spotify selection download started track_id=%s", track_id)
+        logger.info("Spotify selection download started track_id={}", track_id)
         track = await self.spotify_provider.get_track(track_id)
 
         audio_path, cover_path = await self.ytdlp_provider.download_audio(
@@ -120,14 +119,14 @@ class DownloadService:
             await self.cover_provaider.set_mp3_cover(audio_path, cover_path)
 
         logger.info(
-            "Spotify selection download completed cover=%s", cover_path is not None
+            "Spotify selection download completed cover={}", cover_path is not None
         )
         return audio_path, cover_path
 
     async def download_on_youtube(
         self, url: str, format_id: str, output_dir: Path
     ) -> tuple[Path, Path | None]:
-        logger.info("YouTube selection download started format_id=%s", format_id)
+        logger.info("YouTube selection download started format_id={}", format_id)
         if format_id == "-1":
             audio_path, cover_path = await self.ytdlp_provider.download_audio(
                 url, output_dir
@@ -137,12 +136,12 @@ class DownloadService:
                 await self.cover_provaider.set_mp3_cover(audio_path, cover_path)
 
             logger.info(
-                "YouTube audio download completed cover=%s", cover_path is not None
+                "YouTube audio download completed cover={}", cover_path is not None
             )
             return audio_path, cover_path
 
         video_path = await self.ytdlp_provider.download_video(
             url, output_dir, format_id
         )
-        logger.info("YouTube video download completed format_id=%s", format_id)
+        logger.info("YouTube video download completed format_id={}", format_id)
         return video_path, None

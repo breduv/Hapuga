@@ -1,9 +1,9 @@
 import asyncio
-from logging import getLogger
 from pathlib import Path
 from threading import Lock
 
 from gallery_dl import config, exception, job
+from loguru import logger
 
 from app.core.config import Settings
 from app.errors.base import (
@@ -11,8 +11,6 @@ from app.errors.base import (
     EmptyResponseError,
     MediaTooLargeError,
 )
-
-logger = getLogger(__name__)
 
 
 class GallerydlProvider:
@@ -40,7 +38,7 @@ class GallerydlProvider:
             options.append((("extractor", "tiktok"), "proxy", self.proxy))
 
         logger.debug(
-            "Gallery-dl gallery download started proxy=%s",
+            "Gallery-dl gallery download started proxy={}",
             self.proxy is not None,
         )
 
@@ -136,7 +134,7 @@ class GallerydlProvider:
             total_size_bytes += size_bytes
 
         logger.info(
-            "Gallery-dl gallery download completed photos_count=%d total_size_bytes=%d",
+            "Gallery-dl gallery download completed photos_count={} total_size_bytes={}",
             len(files),
             total_size_bytes,
         )
@@ -164,7 +162,7 @@ class GallerydlProvider:
             options.append((("extractor", "tiktok"), "proxy", self.proxy))
 
         logger.debug(
-            "Gallery-dl video fallback started proxy=%s",
+            "Gallery-dl video fallback started proxy={}",
             self.proxy is not None,
         )
 
@@ -247,7 +245,7 @@ class GallerydlProvider:
                 public_message="Видеофайл слишком большой для отправки",
             )
 
-        logger.info("Gallery-dl video fallback completed size_bytes=%d", size_bytes)
+        logger.info("Gallery-dl video fallback completed size_bytes={}", size_bytes)
         return video_path
 
     async def download_video(self, url: str, output_dir: Path) -> Path:
