@@ -6,7 +6,7 @@
 #
 aiofiles==25.1.0
     # via aiogram
-aiogram==3.29.0
+aiogram==3.29.1
     # via -r requirements.in
 aiohappyeyeballs==2.6.2
     # via aiohttp

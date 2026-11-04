@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dw-bot"
+version = "0.1.0"
+description = "Telegram bot that delivers music, videos, and photo galleries"
+readme = "README.md"
+requires-python = ">=3.13"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["telegram", "bot", "aiogram", "yt-dlp", "spotify"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: Multimedia :: Video",
+]
+dependencies = [
+    "aiogram>=3.29.1,<3.32",
+    "aiohttp>=3.14,<4",
+    "aiohttp-socks>=0.11,<0.12",
+    "gallery-dl>=1.32,<2",
+    "loguru>=0.7,<0.8",
+    "mutagen>=1.47,<2",
+    "pydantic-settings>=2.14,<3",
+    "requests[socks]>=2.34,<3",
+    "spotipy>=2.26,<3",
+    "yt-dlp>=2026.8.19",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+dw-bot = "app.cli:main"
+
+[tool.setuptools]
+py-modules = ["main"]
+
+[tool.setuptools.packages.find]
+namespaces = true
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+# User-facing strings are Russian/Cyrillic and deliberately kept on one line
+# so translators can grep them; enforcing a column limit would reflow them.
+ignore = ["E501"]

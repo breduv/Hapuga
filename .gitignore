@@ -1,6 +1,20 @@
 .env
 **/__pycache__/
+*.py[cod]
 .cache
 youtube.cookies.txt
 requirements.in
 AGENTS.md
+
+# Virtualenvs and tooling caches
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/

@@ -1,29 +1,12 @@
-import asyncio
+"""Backwards-compatible wrapper; the implementation lives in :mod:`app.cli`.
+
+``docker compose`` runs ``python main.py``, while ``python -m app`` and
+``python -m app doctor`` are equivalent entry points.
+"""
+
 import sys
 
-from loguru import logger
-
-from app.application import run_application
-from app.core.config import get_settings
-from app.core.logging import configure_logging
-
-
-def main() -> int:
-    configure_logging("INFO")
-
-    try:
-        settings = get_settings()
-        configure_logging(settings.log_level)
-        asyncio.run(run_application(settings))
-    except KeyboardInterrupt:
-        logger.info("Application stopped by user")
-        return 0
-    except Exception:
-        logger.exception("Application stopped due to unhandled exception")
-        return 1
-
-    return 0
-
+from app.cli import main
 
 if __name__ == "__main__":
     sys.exit(main())

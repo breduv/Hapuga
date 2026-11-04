@@ -69,13 +69,13 @@ Compose mounts `./data` at `/app/data` for optional cookie files.
 | Send to the bot | Result |
 | --- | --- |
 | A song title or artist and title | Spotify search results with track selection buttons |
-| A Spotify track link | MP3 audio with Spotify metadata and cover art when available |
+| A Spotify track link | MP3 audio with Spotify metadata and cover art when available; `spotify.link` short links are resolved |
 | A regular YouTube video link | Available resolutions and an audio-only option |
 | A YouTube Shorts link | Video download |
 | A YouTube Music link | Audio download |
 | A TikTok video or photo-post link | Video or photo gallery; short links are resolved automatically |
 | An Instagram or Pinterest video link | Video download, subject to extractor support and access |
-| A VK / VK Video clip link | Clip download; supported paths begin with `/clip` or `/clips` |
+| A VK / VK Video link | Clip or video download; `/clip`, `/clips`, and `/video` links are supported |
 | `/help` | Usage instructions in Telegram |
 
 Support is limited to the sources handled by
@@ -182,6 +182,24 @@ New-Item -ItemType Directory -Force data
 
 Run commands from the project root so `.env` is found.
 
+### Checks and tests
+
+```bash
+python -m app doctor          # configuration and external tools
+python -m app doctor --json   # the same report as JSON
+python -m pip install -e ".[dev]"
+pytest                        # offline suite, no network or bot token needed
+ruff check .
+```
+
+`doctor` verifies the settings, FFmpeg, ffprobe, Deno, the `data/` directory,
+proxy schemes, the cookies file, and the upload limit, then exits with `1` if a
+required check failed. Run it after editing `.env` or before exposing the bot,
+and keep it in the image so a deploy can gate on it.
+
+`python -m app` and `python main.py` are equivalent; `python main.py doctor`
+works as well.
+
 ## Operations and troubleshooting
 
 ```bash
@@ -230,14 +248,15 @@ and coordinate providers; providers talk to external platforms and process media
 ```text
 app/
 ├── bot/          # Telegram handlers, router, and selection keyboards
-├── core/         # Settings and logging
+├── core/         # Settings, logging, and URL rules
 ├── errors/       # Application errors and user-facing messages
 ├── models/       # Input kinds, track metadata, and video formats
 ├── providers/    # Spotify, yt-dlp, gallery-dl, covers, and MP3 tags
 └── services/     # Input routing, search, and download coordination
 
+tests/            # Offline pytest suite
 data/             # Optional cookies; mounted by Compose
-main.py           # Application entry point
+main.py           # Application entry point (wraps `python -m app`)
 docker-compose.yml
 Dockerfile
 ```
