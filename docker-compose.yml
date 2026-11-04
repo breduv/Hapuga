@@ -1,7 +1,5 @@
 services:
   download-bot:
-    image: download-bot:${IMAGE_TAG:-latest}
-
     build:
       context: .
       dockerfile: Dockerfile
