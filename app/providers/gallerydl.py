@@ -12,6 +12,11 @@ from app.errors.base import (
     MediaTooLargeError,
 )
 
+# A TikTok photo post is delivered as images; anything else in the output
+# directory (a leftover video from a previous attempt, a .part file) is not a
+# photo and must not be forwarded to Telegram as one.
+IMAGE_SUFFIXES = frozenset({".jpg", ".jpeg", ".png", ".webp", ".heic"})
+
 
 class GallerydlProvider:
     _config_lock = Lock()
@@ -82,7 +87,9 @@ class GallerydlProvider:
             files = sorted(
                 path
                 for path in output_dir.rglob("*")
-                if path.is_file() and not path.name.endswith(".part")
+                if path.is_file()
+                and not path.name.endswith(".part")
+                and path.suffix.lower() in IMAGE_SUFFIXES
             )
         except OSError as exc:
             raise DownloadError(

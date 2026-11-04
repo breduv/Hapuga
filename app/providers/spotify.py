@@ -236,6 +236,36 @@ class SpotifyProvider:
                 public_message="В Spotify ничего не найдено по этому запросу",
             )
 
-        tracks = [self._convert_track(item) for item in items]
+        tracks: list[TrackInfo] = []
+
+        for item in items:
+            # Spotify mixes ``null`` and region-restricted entries (no id, no
+            # album) into search results; one of them used to abort the whole
+            # request instead of being skipped.
+            if not isinstance(item, dict):
+                logger.warning(
+                    "Skipping unusable Spotify search item type={}",
+                    type(item).__name__,
+                )
+                continue
+
+            try:
+                tracks.append(self._convert_track(item))
+            except UnexpectedResponseError as exc:
+                logger.warning(
+                    "Skipping unusable Spotify search item message={} details={}",
+                    exc.message,
+                    exc.details,
+                )
+                continue
+
+        if not tracks:
+            raise EmptyResponseError(
+                f"Spotify search returned no usable tracks for query: {query}",
+                component="spotify",
+                operation_name="search_tracks",
+                public_message="В Spotify ничего не найдено по этому запросу",
+            )
+
         logger.debug("Spotify search request completed results_count={}", len(tracks))
         return tracks

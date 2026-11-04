@@ -1,6 +1,8 @@
 import asyncio
 import json
+import re
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -16,6 +18,19 @@ from app.errors.base import (
     UnexpectedResponseError,
 )
 from app.models.media import AvailableVideoFormat
+
+# yt-dlp ids are opaque, but they end up in file names: anything outside this
+# alphabet (a path separator, ``..``) would write outside the output directory.
+_MEDIA_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+_AUDIO_SUFFIXES = (".mp3",)
+
+
+@dataclass(frozen=True)
+class MediaProbe:
+    """What ffprobe found inside a downloaded file."""
+
+    has_video: bool
+    has_audio: bool
 
 
 class YtdlpProvider:
@@ -209,37 +224,33 @@ class YtdlpProvider:
                 ),
             )
 
-        file_path = output_dir / (media_id + ".mp3")
-        if not file_path.is_file():
-            raise DownloadError(
-                "downloaded file was not found",
-                component="yt-dlp",
-                operation_name="download_audio",
-                public_message="Не удалось скачать аудио. Попробуй другую ссылку или запрос",
-            )
+        file_path = self._resolve_media_file(
+            output_dir,
+            media_id,
+            _AUDIO_SUFFIXES,
+            operation="download_audio",
+            public_message="Не удалось скачать аудио. Попробуй другую ссылку или запрос",
+        )
 
-        filesize = file_path.stat().st_size
-
-        if filesize > self.max_upload_size_bytes:
-            raise MediaTooLargeError(
-                "downloaded media file is too large",
-                component="yt-dlp",
-                operation_name="download_audio",
-                public_message="Аудиофайл слишком большой для отправки. Попробуй другой трек",
-            )
+        filesize = self._ensure_uploadable(
+            file_path,
+            operation="download_audio",
+            public_message="Аудиофайл слишком большой для отправки. Попробуй другой трек",
+        )
 
         cover_path = None
 
         for suffix in (".jpg", ".jpeg", ".png", ".webp"):
-            candidate = output_dir / f"{media_id}{suffix}"
+            candidate = output_dir / f"{file_path.stem}{suffix}"
 
             if candidate.is_file():
                 cover_path = candidate
                 break
 
         logger.info(
-            "Audio file prepared media_id={} size_bytes={} cover={}",
+            "Audio file prepared media_id={} file_name={} size_bytes={} cover={}",
             media_id,
+            file_path.name,
             filesize,
             cover_path is not None,
         )
@@ -255,7 +266,14 @@ class YtdlpProvider:
         )
 
     @staticmethod
-    def _probe_has_video_and_audio(file_path: Path) -> tuple[bool, bool]:
+    def _probe_media(file_path: Path) -> MediaProbe | None:
+        """Inspect a downloaded file, or return ``None`` if the probe failed.
+
+        A non-zero exit code or unparsable JSON means ffprobe could not inspect
+        the container -- not that the container is invalid. Callers must keep
+        the "no video stream" verdict separate from "no answer", because the
+        retry loop deletes the file it rejects.
+        """
         try:
             result = subprocess.run(
                 [
@@ -282,20 +300,112 @@ class YtdlpProvider:
             ) from exc
 
         if result.returncode != 0:
-            return False, False
+            logger.warning(
+                "ffprobe failed to inspect media path={} returncode={} stderr={}",
+                file_path.name,
+                result.returncode,
+                result.stderr.strip()[:200],
+            )
+            return None
 
         try:
             data = json.loads(result.stdout)
         except json.JSONDecodeError:
-            return False, False
+            logger.warning(
+                "ffprobe returned unparsable output path={}", file_path.name
+            )
+            return None
+
+        if not isinstance(data, dict):
+            return None
+
         streams = data.get("streams", [])
 
-        has_video = any(stream.get("codec_type") == "video" for stream in streams)
-        has_audio = any(stream.get("codec_type") == "audio" for stream in streams)
+        if not isinstance(streams, list):
+            return None
 
-        return has_video, has_audio
+        has_video = any(
+            isinstance(stream, dict) and stream.get("codec_type") == "video"
+            for stream in streams
+        )
+        has_audio = any(
+            isinstance(stream, dict) and stream.get("codec_type") == "audio"
+            for stream in streams
+        )
 
-    def _get_used_format_ids(self, info: dict[str, Any]) -> list[str]:
+        return MediaProbe(has_video=has_video, has_audio=has_audio)
+
+    @staticmethod
+    def _resolve_media_file(
+        output_dir: Path,
+        media_id: object,
+        suffixes: tuple[str, ...],
+        *,
+        operation: str,
+        public_message: str,
+    ) -> Path:
+        """Locate the file yt-dlp wrote for ``media_id``.
+
+        The id comes from a third-party extractor and is interpolated into a
+        path, so it is validated before use, and any extension the
+        post-processor chose is accepted instead of assuming one.
+        """
+        if not isinstance(media_id, str) or not _MEDIA_ID_PATTERN.match(media_id):
+            raise UnexpectedResponseError(
+                f"yt-dlp returned an unusable media id: {media_id!r}",
+                component="yt-dlp",
+                operation_name=operation,
+                public_message=public_message,
+            )
+
+        for suffix in suffixes:
+            candidate = output_dir / f"{media_id}{suffix}"
+            if candidate.is_file():
+                return candidate
+
+        for candidate in sorted(output_dir.glob(f"{media_id}*")):
+            if candidate.is_file() and candidate.suffix.lower() in suffixes:
+                return candidate
+
+        raise DownloadError(
+            "downloaded file was not found",
+            component="yt-dlp",
+            operation_name=operation,
+            details=f"expected one of {suffixes} for media id {media_id}",
+            public_message=public_message,
+        )
+
+    def _ensure_uploadable(
+        self,
+        file_path: Path,
+        *,
+        operation: str,
+        public_message: str,
+    ) -> int:
+        try:
+            filesize = file_path.stat().st_size
+        except OSError as exc:
+            raise DownloadError(
+                "failed to inspect downloaded file",
+                component="yt-dlp",
+                operation_name=operation,
+                details=str(exc),
+                public_message=public_message,
+            ) from exc
+
+        if filesize > self.max_upload_size_bytes:
+            raise MediaTooLargeError(
+                "downloaded media file is too large",
+                component="yt-dlp",
+                operation_name=operation,
+                details=f"{filesize} bytes > {self.max_upload_size_bytes} bytes",
+                public_message=public_message,
+            )
+
+        return filesize
+
+    @staticmethod
+    def _get_used_format_ids(info: dict[str, Any]) -> list[str]:
         requested_formats = info.get("requested_formats")
 
         if isinstance(requested_formats, list):
@@ -361,31 +471,49 @@ class YtdlpProvider:
                     public_message="Не удалось обработать данные видео. Попробуй другую ссылку",
                 )
 
-            file_path = output_dir / (str(media_id) + ".mp4")
-            if not file_path.is_file():
-                raise DownloadError(
-                    "downloaded file was not found",
-                    component="yt-dlp",
-                    operation_name="download_video",
-                    public_message="Не удалось скачать видео. Проверь ссылку или попробуй позже",
+            file_path = self._resolve_media_file(
+                output_dir,
+                media_id,
+                (".mp4",),
+                operation="download_video",
+                public_message=(
+                    "Не удалось скачать видео. Проверь ссылку или попробуй позже"
+                ),
+            )
+
+            probe = self._probe_media(file_path)
+
+            if probe is None:
+                # ffprobe could not read the container: keep the file rather
+                # than deleting a download that yt-dlp reported as successful.
+                filesize = self._ensure_uploadable(
+                    file_path,
+                    operation="download_video",
+                    public_message=(
+                        "Видеофайл слишком большой для отправки. Выбери более низкое качество"
+                        if format_id is not None
+                        else "Видеофайл слишком большой для отправки. Попробуй другую ссылку"
+                    ),
                 )
+                logger.warning(
+                    "Video file could not be probed, sending it anyway "
+                    "media_id={} size_bytes={} format_id={}",
+                    media_id,
+                    filesize,
+                    format_id or "auto",
+                )
+                return file_path
 
-            has_video, has_audio = self._probe_has_video_and_audio(file_path)
-
-            if has_video and has_audio:
-                filesize = file_path.stat().st_size
-
-                if filesize > self.max_upload_size_bytes:
-                    raise MediaTooLargeError(
-                        "downloaded media file is too large",
-                        component="yt-dlp",
-                        operation_name="download_video",
-                        public_message=(
-                            "Видеофайл слишком большой для отправки. Выбери более низкое качество"
-                            if format_id is not None
-                            else "Видеофайл слишком большой для отправки. Попробуй другую ссылку"
-                        ),
-                    )
+            if probe.has_video and probe.has_audio:
+                filesize = self._ensure_uploadable(
+                    file_path,
+                    operation="download_video",
+                    public_message=(
+                        "Видеофайл слишком большой для отправки. Выбери более низкое качество"
+                        if format_id is not None
+                        else "Видеофайл слишком большой для отправки. Попробуй другую ссылку"
+                    ),
+                )
 
                 logger.info(
                     "Video file prepared media_id={} size_bytes={} format_id={}",
@@ -410,8 +538,8 @@ class YtdlpProvider:
             logger.warning(
                 "Downloaded invalid media, retrying media_id={} has_video={} has_audio={} used_formats={} attempt={}",
                 media_id,
-                has_video,
-                has_audio,
+                probe.has_video,
+                probe.has_audio,
                 used_format_ids,
                 attempt,
             )
