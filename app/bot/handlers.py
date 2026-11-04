@@ -1,4 +1,5 @@
 import asyncio
+import re
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from urllib.parse import urlparse
@@ -27,11 +28,18 @@ from loguru import logger
 from app.bot.keyboard import build_search_results_keyboard
 from app.errors.base import (
     AppError,
+    EmptyResponseError,
     InvalidCallbackDataError,
     UnexpectedResponseError,
 )
 from app.services.download_service import DownloadService
 from app.services.search_service import SearchService
+
+# Callback payloads arrive from the Telegram client, not from this process:
+# they are validated before being interpolated into a yt-dlp selector or a URL.
+_VIDEO_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_FORMAT_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,32}$")
+_SPOTIFY_ID_PATTERN = re.compile(r"^[A-Za-z0-9]{1,64}$")
 
 
 class BotHandlers:
@@ -44,6 +52,9 @@ class BotHandlers:
         self.search_service = search_service
         self.download_service = download_service
         self.inline_cache_chat_id = inline_cache_chat_id
+        # Strong references: asyncio only keeps weak ones, so a fire-and-forget
+        # inline job could be garbage collected mid-flight.
+        self._background_tasks: set[asyncio.Task[None]] = set()
 
     async def handle_start(self, msg: Message) -> None:
         text = (
@@ -247,9 +258,9 @@ class BotHandlers:
 
             if data.startswith("sp:"):
                 track_id = data.removeprefix("sp:")
-                if not track_id:
+                if not _SPOTIFY_ID_PATTERN.match(track_id):
                     raise InvalidCallbackDataError(
-                        "Spotify callback track id is empty",
+                        f"Malformed Spotify callback data: {data}",
                         component="bot",
                         operation_name="handle_callback",
                     )
@@ -297,6 +308,21 @@ class BotHandlers:
                     )
 
                 _, video_id, format_id = parts
+
+                if not _VIDEO_ID_PATTERN.match(video_id):
+                    raise InvalidCallbackDataError(
+                        f"Malformed YouTube video id: {video_id}",
+                        component="bot",
+                        operation_name="handle_callback",
+                    )
+
+                if format_id != "-1" and not _FORMAT_ID_PATTERN.match(format_id):
+                    raise InvalidCallbackDataError(
+                        f"Malformed YouTube format id: {format_id}",
+                        component="bot",
+                        operation_name="handle_callback",
+                    )
+
                 video_url = f"https://www.youtube.com/watch?v={video_id}"
 
                 loading_msg = await msg.answer("Скачиваю...")
@@ -436,9 +462,11 @@ class BotHandlers:
             len(query),
         )
 
-        asyncio.create_task(
+        task = asyncio.create_task(
             self._process_chosen_inline_result(bot, chosen_inline_result)
         )
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     async def _process_chosen_inline_result(
         self,
@@ -581,6 +609,14 @@ class BotHandlers:
                 temp_dir,
             )
 
+            if not photo_paths:
+                raise EmptyResponseError(
+                    "gallery download produced no photos",
+                    component="bot",
+                    operation_name="upload_inline_photo",
+                    public_message="В публикации не нашлось доступных фотографий",
+                )
+
             upload_msg = await bot.send_photo(
                 chat_id=self.inline_cache_chat_id or chosen_inline_result.from_user.id,
                 photo=FSInputFile(photo_paths[0]),
@@ -621,6 +657,9 @@ class BotHandlers:
     @staticmethod
     async def _send_photos(msg: Message, photo_paths: list[Path]) -> None:
         max_group_size = 10
+
+        if not photo_paths:
+            return
 
         for start in range(0, len(photo_paths), max_group_size):
             batch = photo_paths[start : start + max_group_size]

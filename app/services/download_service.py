@@ -3,12 +3,15 @@ from urllib.parse import urlparse
 
 from loguru import logger
 
-from app.errors.base import DownloadError
+from app.core.urls import normalize_host
+from app.errors.base import AppError, DownloadError
 from app.models.search import TIKTOK_HOSTS
 from app.providers.cover import CoverProvider
 from app.providers.gallerydl import GallerydlProvider
 from app.providers.spotify import SpotifyProvider
 from app.providers.ytdlp import YtdlpProvider
+
+_TIKTOK_HOSTNAMES = {normalize_host(value) for value in TIKTOK_HOSTS}
 
 
 class DownloadService:
@@ -23,6 +26,59 @@ class DownloadService:
         self.ytdlp_provider = ytdlp_provider
         self.cover_provaider = cover_provaider
         self.gallerydl_provider = gallerydl_provider
+
+    async def _decorate_audio(
+        self,
+        audio_path: Path,
+        output_dir: Path,
+        *,
+        title: str | None = None,
+        artist: str | None = None,
+        cover_url: str | None = None,
+        cover_path: Path | None = None,
+    ) -> Path | None:
+        """Tag the track and embed artwork, best effort.
+
+        Metadata and artwork are cosmetic: a tagging failure must not throw
+        away a download that already succeeded, so provider errors are logged
+        and the audio is returned as it is.
+        """
+        if title is not None and artist is not None:
+            try:
+                await self.cover_provaider.set_mp3_metadata(
+                    audio_path, title=title, artist=artist
+                )
+            except AppError as exc:
+                logger.warning(
+                    "Failed to write mp3 metadata code={} details={}",
+                    exc.code,
+                    exc.details,
+                )
+
+        if cover_url is not None:
+            try:
+                cover_path = await self.cover_provaider.download_cover(
+                    cover_url, output_dir
+                )
+            except AppError as exc:
+                logger.warning(
+                    "Failed to download cover code={} details={}",
+                    exc.code,
+                    exc.details,
+                )
+                cover_path = None
+
+        if cover_path is not None:
+            try:
+                await self.cover_provaider.set_mp3_cover(audio_path, cover_path)
+            except AppError as exc:
+                logger.warning(
+                    "Failed to embed cover code={} details={}",
+                    exc.code,
+                    exc.details,
+                )
+
+        return cover_path
 
     async def download_media(
         self,
@@ -41,23 +97,14 @@ class DownloadService:
                 output_dir=output_dir,
             )
 
-            title = media.get("title")
-            artist = media.get("artist")
-
-            if title is not None and artist is not None:
-                await self.cover_provaider.set_mp3_metadata(
-                    audio_path, title=title, artist=artist
-                )
-
-            cover_url = media.get("cover_url")
-
-            if cover_url is not None:
-                cover_path = await self.cover_provaider.download_cover(
-                    cover_url, output_dir
-                )
-
-            if cover_path is not None:
-                await self.cover_provaider.set_mp3_cover(audio_path, cover_path)
+            cover_path = await self._decorate_audio(
+                audio_path,
+                output_dir,
+                title=media.get("title"),
+                artist=media.get("artist"),
+                cover_url=media.get("cover_url"),
+                cover_path=cover_path,
+            )
 
             logger.info("Audio download completed cover={}", cover_path is not None)
             return audio_path, cover_path
@@ -71,7 +118,9 @@ class DownloadService:
                 output_dir=output_dir,
             )
         except DownloadError as exc:
-            if urlparse(video_url).hostname not in TIKTOK_HOSTS:
+            if normalize_host(urlparse(video_url).hostname or "") not in (
+                _TIKTOK_HOSTNAMES
+            ):
                 raise
 
             logger.warning(
@@ -106,17 +155,14 @@ class DownloadService:
             output_dir=output_dir,
         )
 
-        await self.cover_provaider.set_mp3_metadata(
-            audio_path, title=track.title, artist=track.artist
+        cover_path = await self._decorate_audio(
+            audio_path,
+            output_dir,
+            title=track.title,
+            artist=track.artist,
+            cover_url=track.cover_url,
+            cover_path=cover_path,
         )
-
-        if track.cover_url is not None:
-            cover_path = await self.cover_provaider.download_cover(
-                track.cover_url, output_dir
-            )
-
-        if cover_path is not None:
-            await self.cover_provaider.set_mp3_cover(audio_path, cover_path)
 
         logger.info(
             "Spotify selection download completed cover={}", cover_path is not None
@@ -132,8 +178,9 @@ class DownloadService:
                 url, output_dir
             )
 
-            if cover_path is not None:
-                await self.cover_provaider.set_mp3_cover(audio_path, cover_path)
+            cover_path = await self._decorate_audio(
+                audio_path, output_dir, cover_path=cover_path
+            )
 
             logger.info(
                 "YouTube audio download completed cover={}", cover_path is not None

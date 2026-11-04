@@ -20,6 +20,8 @@ from app.errors.base import (
 
 
 class CoverProvider:
+    MAX_COVER_BYTES = 8 * 1024 * 1024
+
     def __init__(self, settings: Settings) -> None:
         self.proxy = (
             settings.media_proxy.get_secret_value()
@@ -27,10 +29,25 @@ class CoverProvider:
             else None
         )
 
+    @staticmethod
+    def sniff_image_suffix(content: bytes) -> str | None:
+        """Return the image suffix implied by the payload's magic bytes.
+
+        Cover URLs are third-party and sometimes answer ``200`` with an HTML
+        error page; embedding those bytes as a JPEG produces a file Telegram
+        rejects, so the payload is identified before it is written.
+        """
+        if content.startswith(b"\xff\xd8\xff"):
+            return ".jpg"
+        if content.startswith(b"\x89PNG\r\n\x1a\n"):
+            return ".png"
+        if content.startswith(b"RIFF") and content[8:12] == b"WEBP":
+            return ".webp"
+        return None
+
     async def download_cover(
         self, url: str, output_dir: Path, filename: str = "cover.jpg"
     ) -> Path:
-        cover_path = output_dir / filename
         timeout = aiohttp.ClientTimeout(total=10)
         connector = None
         request_proxy = self.proxy
@@ -67,17 +84,37 @@ class CoverProvider:
                         public_message="Не удалось скачать обложку трека. Попробуй позже",
                     )
 
-                content = await response.read()
+                content = await response.content.read(self.MAX_COVER_BYTES + 1)
 
-            if not content:
-                raise DownloadError(
-                    "cover response is empty",
-                    component="cover",
-                    operation_name="download_cover",
-                    public_message="Не удалось скачать обложку трека. Попробуй позже",
-                )
+                if not content:
+                    raise DownloadError(
+                        "cover response is empty",
+                        component="cover",
+                        operation_name="download_cover",
+                        public_message="Не удалось скачать обложку трека. Попробуй позже",
+                    )
 
-            cover_path.write_bytes(content)
+                if len(content) > self.MAX_COVER_BYTES:
+                    raise DownloadError(
+                        f"cover response exceeds {self.MAX_COVER_BYTES} bytes",
+                        component="cover",
+                        operation_name="download_cover",
+                        public_message="Не удалось скачать обложку трека. Попробуй позже",
+                    )
+
+                suffix = self.sniff_image_suffix(content)
+
+                if suffix is None:
+                    raise DownloadError(
+                        "cover response is not a supported image",
+                        component="cover",
+                        operation_name="download_cover",
+                        details=content[:16].hex(),
+                        public_message="Не удалось скачать обложку трека. Попробуй позже",
+                    )
+
+                cover_path = output_dir / f"{Path(filename).stem}{suffix}"
+                cover_path.write_bytes(content)
 
         except DownloadError:
             raise
@@ -108,7 +145,7 @@ class CoverProvider:
                 public_message="Не удалось скачать обложку трека. Попробуй позже",
             ) from exc
 
-        logger.info("Cover downloaded size_bytes={}", len(content))
+        logger.info("Cover downloaded size_bytes={} path={}", len(content), cover_path.name)
         return cover_path
 
     def _set_mp3_cover(self, mp3_path: Path, cover_path: Path) -> None:
