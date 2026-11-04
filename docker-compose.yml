@@ -11,9 +11,9 @@ services:
     restart: unless-stopped
 
     environment:
-      BOT_TOKEN: ${BOT_TOKEN}
-      SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID}
-      SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET}
+      BOT_TOKEN: ${BOT_TOKEN:?Set BOT_TOKEN in .env or environment}
+      SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:?Set SPOTIFY_CLIENT_ID in .env or environment}
+      SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET:?Set SPOTIFY_CLIENT_SECRET in .env or environment}
       MEDIA_PROXY: ${MEDIA_PROXY:-}
       TELEGRAM_PROXY: ${TELEGRAM_PROXY:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
