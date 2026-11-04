@@ -68,8 +68,6 @@ mutagen==1.47.0
     # via
     #   -r requirements.in
     #   yt-dlp
-prometheus-client==0.25.0
-    # via -r requirements.in
 propcache==0.5.2
     # via
     #   aiohttp

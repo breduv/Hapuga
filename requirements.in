@@ -1,0 +1,11 @@
+aiogram
+pydantic_settings
+spotipy
+ffmpeg-python
+yt-dlp[default,curl-cffi]
+yt-dlp-ejs
+aiohttp_socks
+mutagen
+gallery-dl
+requests[socks]
+loguru
