@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 from aiogram import Bot
+from aiogram.enums import ChatAction
 from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError
 from aiogram.types import (
     CallbackQuery,
@@ -20,6 +21,7 @@ from aiogram.types import (
     InputTextMessageContent,
     Message,
 )
+from aiogram.utils.chat_action import ChatActionSender
 from loguru import logger
 
 from app.bot.keyboard import build_search_results_keyboard
@@ -80,7 +82,12 @@ class BotHandlers:
 
     async def handle_text(self, msg: Message) -> None:
         try:
-            if msg.text is None or not msg.from_user or msg.from_user.is_bot:
+            if (
+                msg.text is None
+                or not msg.from_user
+                or msg.from_user.is_bot
+                or msg.bot is None
+            ):
                 return
 
             logger.info(
@@ -96,22 +103,30 @@ class BotHandlers:
                 logger.info("Audio request resolved user_id={}", msg.from_user.id)
                 loading_msg = await msg.answer("Скачиваю...")
                 try:
-                    with TemporaryDirectory() as temp_dir:
-                        (
-                            file_path,
-                            cover_path,
-                        ) = await self.download_service.download_media(
-                            response,
-                            Path(temp_dir),
-                        )
+                    async with ChatActionSender(
+                        bot=msg.bot,
+                        chat_id=msg.chat.id,
+                        message_thread_id=(
+                            msg.message_thread_id if msg.is_topic_message else None
+                        ),
+                        action=ChatAction.UPLOAD_DOCUMENT,
+                    ):
+                        with TemporaryDirectory() as temp_dir:
+                            (
+                                file_path,
+                                cover_path,
+                            ) = await self.download_service.download_media(
+                                response,
+                                Path(temp_dir),
+                            )
 
-                        await msg.answer_audio(
-                            audio=FSInputFile(file_path),
-                            thumbnail=FSInputFile(cover_path)
-                            if cover_path is not None
-                            else None,
-                        )
-                        logger.info("Audio sent user_id={}", msg.from_user.id)
+                            await msg.answer_audio(
+                                audio=FSInputFile(file_path),
+                                thumbnail=FSInputFile(cover_path)
+                                if cover_path is not None
+                                else None,
+                            )
+                            logger.info("Audio sent user_id={}", msg.from_user.id)
                 finally:
                     await self._delete_message(loading_msg)
 
@@ -121,16 +136,24 @@ class BotHandlers:
                 logger.info("Video request resolved user_id={}", msg.from_user.id)
                 loading_msg = await msg.answer("Скачиваю...")
                 try:
-                    with TemporaryDirectory() as temp_dir:
-                        file_path, _ = await self.download_service.download_media(
-                            response,
-                            Path(temp_dir),
-                        )
+                    async with ChatActionSender(
+                        bot=msg.bot,
+                        chat_id=msg.chat.id,
+                        message_thread_id=(
+                            msg.message_thread_id if msg.is_topic_message else None
+                        ),
+                        action=ChatAction.UPLOAD_VIDEO,
+                    ):
+                        with TemporaryDirectory() as temp_dir:
+                            file_path, _ = await self.download_service.download_media(
+                                response,
+                                Path(temp_dir),
+                            )
 
-                        await msg.answer_video(
-                            video=FSInputFile(file_path), supports_streaming=True
-                        )
-                        logger.info("Video sent user_id={}", msg.from_user.id)
+                            await msg.answer_video(
+                                video=FSInputFile(file_path), supports_streaming=True
+                            )
+                            logger.info("Video sent user_id={}", msg.from_user.id)
                 finally:
                     await self._delete_message(loading_msg)
 
@@ -140,18 +163,26 @@ class BotHandlers:
                 logger.info("Photo request resolved user_id={}", msg.from_user.id)
                 loading_msg = await msg.answer("Скачиваю...")
                 try:
-                    with TemporaryDirectory() as temp_dir:
-                        photo_paths = await self.download_service.download_photos(
-                            response["photo"],
-                            Path(temp_dir),
-                        )
+                    async with ChatActionSender(
+                        bot=msg.bot,
+                        chat_id=msg.chat.id,
+                        message_thread_id=(
+                            msg.message_thread_id if msg.is_topic_message else None
+                        ),
+                        action=ChatAction.UPLOAD_PHOTO,
+                    ):
+                        with TemporaryDirectory() as temp_dir:
+                            photo_paths = await self.download_service.download_photos(
+                                response["photo"],
+                                Path(temp_dir),
+                            )
 
-                        await self._send_photos(msg, photo_paths)
-                        logger.info(
-                            "Gallery sent user_id={} photos_count={}",
-                            msg.from_user.id,
-                            len(photo_paths),
-                        )
+                            await self._send_photos(msg, photo_paths)
+                            logger.info(
+                                "Gallery sent user_id={} photos_count={}",
+                                msg.from_user.id,
+                                len(photo_paths),
+                            )
                 finally:
                     await self._delete_message(loading_msg)
 
@@ -176,7 +207,7 @@ class BotHandlers:
         except AppError as exc:
             self._log_handled_error("text", exc)
             await self._send_error(msg, exc.public_message)
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.exception("Unhandled request error context=text")
             await self._send_error(
                 msg, "Произошла непредвиденная ошибка. Попробуй ещё раз позже"
@@ -202,6 +233,9 @@ class BotHandlers:
             msg = callback.message
             data = callback.data
 
+            if msg.bot is None:
+                return
+
             logger.info(
                 "Callback received user_id={} chat_id={} callback_type={}",
                 callback.from_user.id,
@@ -222,24 +256,32 @@ class BotHandlers:
 
                 loading_msg = await msg.answer("Скачиваю...")
                 try:
-                    with TemporaryDirectory() as temp_dir:
-                        (
-                            file_path,
-                            cover_path,
-                        ) = await self.download_service.download_on_spotify(
-                            track_id,
-                            Path(temp_dir),
-                        )
+                    async with ChatActionSender(
+                        bot=msg.bot,
+                        chat_id=msg.chat.id,
+                        message_thread_id=(
+                            msg.message_thread_id if msg.is_topic_message else None
+                        ),
+                        action=ChatAction.UPLOAD_DOCUMENT,
+                    ):
+                        with TemporaryDirectory() as temp_dir:
+                            (
+                                file_path,
+                                cover_path,
+                            ) = await self.download_service.download_on_spotify(
+                                track_id,
+                                Path(temp_dir),
+                            )
 
-                        await msg.answer_audio(
-                            audio=FSInputFile(file_path),
-                            thumbnail=FSInputFile(cover_path)
-                            if cover_path is not None
-                            else None,
-                        )
-                        logger.info(
-                            "Spotify audio sent user_id={}", callback.from_user.id
-                        )
+                            await msg.answer_audio(
+                                audio=FSInputFile(file_path),
+                                thumbnail=FSInputFile(cover_path)
+                                if cover_path is not None
+                                else None,
+                            )
+                            logger.info(
+                                "Spotify audio sent user_id={}", callback.from_user.id
+                            )
                 finally:
                     await self._delete_message(loading_msg)
 
@@ -259,35 +301,49 @@ class BotHandlers:
 
                 loading_msg = await msg.answer("Скачиваю...")
                 try:
-                    with TemporaryDirectory() as temp_dir:
-                        (
-                            file_path,
-                            cover_path,
-                        ) = await self.download_service.download_on_youtube(
-                            video_url,
-                            format_id,
-                            Path(temp_dir),
-                        )
-
-                        if format_id == "-1":
-                            await msg.answer_audio(
-                                audio=FSInputFile(file_path),
-                                thumbnail=FSInputFile(cover_path)
-                                if cover_path is not None
-                                else None,
-                            )
-                            logger.info(
-                                "YouTube audio sent user_id={}", callback.from_user.id
-                            )
-                        else:
-                            await msg.answer_video(
-                                video=FSInputFile(file_path), supports_streaming=True
-                            )
-                            logger.info(
-                                "YouTube video sent user_id={} format_id={}",
-                                callback.from_user.id,
+                    async with ChatActionSender(
+                        bot=msg.bot,
+                        chat_id=msg.chat.id,
+                        message_thread_id=(
+                            msg.message_thread_id if msg.is_topic_message else None
+                        ),
+                        action=(
+                            ChatAction.UPLOAD_DOCUMENT
+                            if format_id == "-1"
+                            else ChatAction.UPLOAD_VIDEO
+                        ),
+                    ):
+                        with TemporaryDirectory() as temp_dir:
+                            (
+                                file_path,
+                                cover_path,
+                            ) = await self.download_service.download_on_youtube(
+                                video_url,
                                 format_id,
+                                Path(temp_dir),
                             )
+
+                            if format_id == "-1":
+                                await msg.answer_audio(
+                                    audio=FSInputFile(file_path),
+                                    thumbnail=FSInputFile(cover_path)
+                                    if cover_path is not None
+                                    else None,
+                                )
+                                logger.info(
+                                    "YouTube audio sent user_id={}",
+                                    callback.from_user.id,
+                                )
+                            else:
+                                await msg.answer_video(
+                                    video=FSInputFile(file_path),
+                                    supports_streaming=True,
+                                )
+                                logger.info(
+                                    "YouTube video sent user_id={} format_id={}",
+                                    callback.from_user.id,
+                                    format_id,
+                                )
                 finally:
                     await self._delete_message(loading_msg)
 
@@ -301,7 +357,7 @@ class BotHandlers:
         except AppError as exc:
             self._log_handled_error("callback", exc)
             await self._send_callback_error(callback, exc.public_message)
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.exception("Unhandled request error context=callback")
             await self._send_callback_error(
                 callback,
@@ -353,7 +409,7 @@ class BotHandlers:
             )
         except TelegramAPIError:
             logger.exception("Telegram API error context=inline_query")
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.exception("Unhandled request error context=inline_query")
 
     async def handle_chosen_inline_result(
@@ -432,7 +488,7 @@ class BotHandlers:
                 inline_message_id,
                 "Telegram не принял файл. Попробуй другую ссылку",
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.exception("Unhandled request error context=chosen_inline_result")
             await self._edit_inline_error(
                 bot,
@@ -598,14 +654,14 @@ class BotHandlers:
     async def _delete_message(msg: Message) -> None:
         try:
             await msg.delete()
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.opt(exception=True).warning("Failed to delete message")
 
     @staticmethod
     async def _send_error(msg: Message, public_message: str) -> None:
         try:
             await msg.answer(public_message)
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.exception("Failed to send error message to user")
 
     async def _send_callback_error(
@@ -617,7 +673,7 @@ class BotHandlers:
 
         try:
             await callback.answer(public_message, show_alert=True)
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.exception("Failed to send callback error to user")
 
     @staticmethod
