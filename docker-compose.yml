@@ -1,10 +1,10 @@
 services:
-  download-bot:
+  hapuga:
     build:
       context: .
       dockerfile: Dockerfile
 
-    container_name: download-bot
+    container_name: hapuga
 
     restart: unless-stopped
 

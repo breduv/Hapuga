@@ -2,7 +2,7 @@
 
 [English](README.md) · **Русский**
 
-# DW Bot
+# Hapuga
 
 **Музыка, видео и фотогалереи прямо в Telegram**
 
@@ -186,7 +186,7 @@ New-Item -ItemType Directory -Force data
 
 ```bash
 # Следить за логами бота
-docker compose logs -f --tail=100 download-bot
+docker compose logs -f --tail=100 hapuga
 
 # Пересобрать после изменения кода или зависимостей
 docker compose up -d --build

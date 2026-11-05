@@ -2,7 +2,7 @@
 
 **English** · [Русский](README.ru.md)
 
-# DW Bot
+# Hapuga
 
 **Music, videos, and photo galleries delivered to Telegram**
 
@@ -186,7 +186,7 @@ Run commands from the project root so `.env` is found.
 
 ```bash
 # Follow bot logs
-docker compose logs -f --tail=100 download-bot
+docker compose logs -f --tail=100 hapuga
 
 # Rebuild after source or dependency changes
 docker compose up -d --build
