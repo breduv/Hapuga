@@ -1,6 +1,8 @@
 import asyncio
+from time import monotonic
 
 from loguru import logger
+from requests import Session
 from requests.exceptions import Timeout as RequestsTimeout
 from spotipy.client import Spotify
 from spotipy.oauth2 import SpotifyClientCredentials
@@ -15,32 +17,34 @@ from app.errors.base import (
 from app.models.media import TrackInfo
 
 
+class _TimedSpotifyCredentials(SpotifyClientCredentials):
+    def get_access_token(self, as_dict: bool = True, check_cache: bool = True):
+        started_at = monotonic()
+        try:
+            return super().get_access_token(as_dict=as_dict, check_cache=check_cache)
+        finally:
+            logger.info(
+                "Spotify token lookup duration_s={:.3f}", monotonic() - started_at
+            )
+
+
 class SpotifyProvider:
     def __init__(self, settings: Settings) -> None:
+        proxy = (
+            settings.media_proxy.get_secret_value() if settings.media_proxy else None
+        )
+        proxies = {"http": proxy, "https": proxy}
+        timeout = (5, 10)
         self.client = Spotify(
-            auth_manager=SpotifyClientCredentials(
+            auth_manager=_TimedSpotifyCredentials(
                 client_id=settings.spotify_client_id,
                 client_secret=settings.spotify_client_secret.get_secret_value(),
-                proxies={
-                    "http": settings.media_proxy.get_secret_value()
-                    if settings.media_proxy
-                    else None,
-                    "https": settings.media_proxy.get_secret_value()
-                    if settings.media_proxy
-                    else None,
-                },
-                requests_timeout=20,
+                proxies=proxies,
+                requests_timeout=timeout,
             ),
-            proxies={
-                "http": settings.media_proxy.get_secret_value()
-                if settings.media_proxy
-                else None,
-                "https": settings.media_proxy.get_secret_value()
-                if settings.media_proxy
-                else None,
-            },
-            requests_timeout=20,
-            retries=3,
+            proxies=proxies,
+            requests_timeout=timeout,  # pyright: ignore[reportArgumentType]
+            requests_session=Session(),  # pyright: ignore[reportArgumentType]
         )
 
         self.search_limit = settings.search_limit
@@ -121,6 +125,7 @@ class SpotifyProvider:
 
     async def get_track(self, track_id_or_url: str) -> TrackInfo:
         logger.debug("Spotify get_track request started")
+        started_at = monotonic()
         try:
             item = await asyncio.to_thread(
                 self.client.track,
@@ -145,6 +150,10 @@ class SpotifyProvider:
                     "Проверь ссылку или попробуй позже"
                 ),
             ) from exc
+        finally:
+            logger.info(
+                "Spotify track request duration_s={:.3f}", monotonic() - started_at
+            )
 
         if item is None:
             raise EmptyResponseError(
@@ -168,6 +177,7 @@ class SpotifyProvider:
 
     async def search_tracks(self, query: str) -> list[TrackInfo]:
         logger.debug("Spotify search request started query_length={}", len(query))
+        started_at = monotonic()
         try:
             response = await asyncio.to_thread(
                 self.client.search,
@@ -191,6 +201,10 @@ class SpotifyProvider:
                 details=str(exc),
                 public_message="Не смог выполнить поиск в Spotify. Попробуй позже",
             ) from exc
+        finally:
+            logger.info(
+                "Spotify search request duration_s={:.3f}", monotonic() - started_at
+            )
 
         if response is None:
             raise EmptyResponseError(

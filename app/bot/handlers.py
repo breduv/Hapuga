@@ -1,6 +1,7 @@
 import asyncio
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from time import monotonic
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -452,9 +453,17 @@ class BotHandlers:
             return
 
         try:
+            started_at = monotonic()
             response = await self.search_service.search(query)
-
+            search_finished_at = monotonic()
             with TemporaryDirectory() as temp_dir:
+                logger.info(
+                    "Inline media preparation started result_id={} search_duration_s={:.3f} "
+                    "temp_dir_duration_s={:.3f}",
+                    chosen_inline_result.result_id,
+                    search_finished_at - started_at,
+                    monotonic() - search_finished_at,
+                )
                 await self._edit_inline_result_media(
                     bot,
                     chosen_inline_result,

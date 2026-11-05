@@ -1,7 +1,9 @@
 import asyncio
 import json
 import subprocess
+from io import StringIO
 from pathlib import Path
+from time import monotonic
 from typing import Any, cast
 
 from loguru import logger
@@ -29,7 +31,9 @@ class YtdlpProvider:
         if settings.media_proxy:
             self.base_options["proxy"] = settings.media_proxy.get_secret_value()
 
-        self.cookies_file = settings.cookies_file
+        self.cookies_file = (
+            Path(settings.cookies_file) if settings.cookies_file else None
+        )
 
         self.max_upload_size_bytes = settings.max_upload_size_mb * 1024 * 1024
 
@@ -61,68 +65,65 @@ class YtdlpProvider:
             operation,
             "url" if target.startswith(("http://", "https://")) else "search",
         )
-        try:
-            with YoutubeDL(options) as ydl:  # pyright: ignore[reportArgumentType]
-                raw_info = ydl.extract_info(target, download=True)
+        cookies_file = self.cookies_file
+        if cookies_file is None:
+            attempts = (False,)
+        elif operation == "download_audio" and target.startswith("ytsearch1:"):
+            attempts = (True, False)
+        else:
+            attempts = (False, True)
 
-                if raw_info is None:
-                    raise EmptyResponseError(
-                        "yt-dlp returned empty response",
-                        component="yt-dlp",
-                        operation_name=operation,
-                        public_message=public_messages["empty_response"],
-                    )
-
-                info = ydl.sanitize_info(raw_info)
-
-        except YtdlpDownloadError as exc:
-            if not self.cookies_file:
-                raise DownloadError(
-                    "yt-dlp failed to download target",
-                    component="yt-dlp",
-                    operation_name=operation,
-                    details=str(exc),
-                    public_message=public_messages["download_error"],
-                ) from exc
-
-            logger.warning(
-                "yt-dlp extraction failed without cookies, retrying with cookies "
-                "operation_name={} details={}",
-                operation,
-                str(exc),
-            )
-
-            retry_options = options | {
-                "cookiefile": self.cookies_file,
-            }
-
+        info = None
+        for attempt, use_cookies in enumerate(attempts, start=1):
+            started_at = monotonic()
+            attempt_options = options
             try:
-                with YoutubeDL(retry_options) as ydl:  # pyright: ignore[reportArgumentType]
+                if use_cookies and cookies_file is not None:
+                    # yt-dlp saves its cookie jar on exit. Keep writes local to this attempt.
+                    attempt_options = options | {
+                        "cookiefile": StringIO(
+                            cookies_file.read_text(encoding="utf-8")
+                        ),
+                    }
+
+                with YoutubeDL(attempt_options) as ydl:  # pyright: ignore[reportArgumentType]
                     raw_info = ydl.extract_info(target, download=True)
 
                     if raw_info is None:
                         raise EmptyResponseError(
-                            "yt-dlp returned empty response with cookies",
+                            "yt-dlp returned empty response",
                             component="yt-dlp",
                             operation_name=operation,
                             public_message=public_messages["empty_response"],
                         )
 
                     info = ydl.sanitize_info(raw_info)
+            except (YtdlpDownloadError, OSError, UnicodeError) as exc:
+                if attempt == len(attempts):
+                    raise DownloadError(
+                        "yt-dlp failed to download target",
+                        component="yt-dlp",
+                        operation_name=operation,
+                        details=str(exc),
+                        public_message=public_messages["download_error"],
+                    ) from exc
 
-            except YtdlpDownloadError as retry_exc:
-                raise DownloadError(
-                    "yt-dlp failed to download target with cookies",
-                    component="yt-dlp",
-                    operation_name=operation,
-                    details=str(retry_exc),
-                    public_message=public_messages["download_error"],
-                ) from retry_exc
-
-            logger.info(
-                "yt-dlp extraction succeeded with cookies operation_name={}",
-                operation,
-            )
+                logger.warning(
+                    "yt-dlp download attempt failed, retrying operation_name={} "
+                    "cookies={} details={}",
+                    operation,
+                    use_cookies,
+                    str(exc),
+                )
+            else:
+                break
+            finally:
+                logger.info(
+                    "yt-dlp download attempt duration_s={:.3f} operation_name={} cookies={}",
+                    monotonic() - started_at,
+                    operation,
+                    use_cookies,
+                )
 
         if not isinstance(info, dict):
             raise UnexpectedResponseError(
@@ -481,11 +482,12 @@ class YtdlpProvider:
                 str(exc),
             )
 
-            retry_options = options | {
-                "cookiefile": self.cookies_file,
-            }
-
             try:
+                retry_options = options | {
+                    "cookiefile": StringIO(
+                        self.cookies_file.read_text(encoding="utf-8")
+                    ),
+                }
                 with YoutubeDL(retry_options) as ydl:  # pyright: ignore[reportArgumentType]
                     raw_info = ydl.extract_info(url, download=False)
 
@@ -499,7 +501,7 @@ class YtdlpProvider:
 
                     info = ydl.sanitize_info(raw_info)
 
-            except YtdlpDownloadError as retry_exc:
+            except (YtdlpDownloadError, OSError, UnicodeError) as retry_exc:
                 raise DownloadError(
                     "yt-dlp failed to extract video formats with cookies",
                     component="yt-dlp",
