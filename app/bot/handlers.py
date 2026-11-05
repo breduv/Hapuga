@@ -46,13 +46,15 @@ class BotHandlers:
         self.download_service = download_service
         self.inline_cache_chat_id = inline_cache_chat_id
 
-    async def handle_start(self, msg: Message) -> None:
+    async def handle_start(self, msg: Message, bot: Bot) -> None:
+        username = (await bot.me()).username
         text = (
             "Привет. Я скачиваю музыку, видео и фото по ссылкам\n\n"
             "Пришли мне название трека или ссылку, а я попробую вернуть готовый файл\n"
-            "В любом чате можно использовать inline-режим: @loader_cat_bot <ссылка>\n\n"
-            "Подробная инструкция: /help"
         )
+        if username:
+            text += f"В любом чате можно использовать inline-режим: @{username} <ссылка>\n"
+        text += "\nПодробная инструкция: /help"
 
         await msg.answer(text)
 
