@@ -1,5 +1,7 @@
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.exceptions import TelegramAPIError
+from aiogram.types import BotCommand
 from loguru import logger
 
 from app.bot.router import setup_router
@@ -54,7 +56,18 @@ async def run_application(settings: Settings) -> None:
     dispatcher.include_router(router)
 
     try:
-        # await bot.set_my_commands(...)
+        try:
+            await bot.set_my_commands(
+                commands=[
+                    BotCommand(command="start", description="Начать работу"),
+                    BotCommand(command="help", description="Как пользоваться ботом"),
+                ],
+                request_timeout=10,
+            )
+        except TelegramAPIError as exc:
+            logger.warning(
+                "Failed to register Telegram commands: {}", type(exc).__name__
+            )
         logger.info("Starting Telegram bot")
         await dispatcher.start_polling(bot)
     finally:
