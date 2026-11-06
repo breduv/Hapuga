@@ -31,7 +31,7 @@ Built with aiogram, Spotify search, yt-dlp, and gallery-dl.
 | 🎬 **YouTube quality selection** | Choose an available video resolution or audio only |
 | 🖼️ **TikTok photo galleries** | Receive photos in media groups of up to 10 images |
 | ⚡ **Inline sharing** | Send supported media into other chats with `@your_bot <URL>` |
-| 🍪 **Optional YouTube cookies** | Retry failed extraction requests with an authenticated session |
+| 🍪 **Optional cookies** | Use a cookie file for yt-dlp downloads and YouTube format lookup |
 | 🌐 **Separate proxies** | Configure media downloads and Telegram connections independently |
 | 🐳 **Docker Compose** | Python, FFmpeg, ffprobe, and Deno included in the image |
 
@@ -124,11 +124,9 @@ Settings are loaded from environment variables and `.env` by
 | `SEARCH_LIMIT` | no | `5` | Number of Spotify search results; 1–10 |
 | `MAX_UPLOAD_SIZE_MB` | no | `49` | Maximum size of each media file; at least 1 MB |
 | `INLINE_CACHE_CHAT_ID` | no | — | Chat or channel ID for temporary inline uploads |
-| `IMAGE_TAG` | no | `latest` | Docker image tag used by Compose |
 
 Leave unused proxies empty. `MEDIA_PROXY` does not apply to the initial
-HTTP request that resolves a short TikTok link. `IMAGE_TAG` is a Compose
-setting; the other variables configure the application.
+HTTP request that resolves a short TikTok link.
 
 ### YouTube cookies
 
@@ -140,8 +138,10 @@ setting; the other variables configure the application.
    docker compose up -d
    ```
 
-The bot first tries extraction without cookies, then retries with them after
-an extraction error. Leave `COOKIES_FILE` empty to disable this retry.
+For direct media links and YouTube format lookup, yt-dlp starts without cookies
+and can retry with them if extraction fails. When the bot searches YouTube for
+a Spotify track by artist and title, yt-dlp starts with cookies and can retry
+without them. Leave `COOKIES_FILE` empty to run without cookies.
 If a filename is configured but the file is missing, settings validation
 prevents startup. Cookies do not guarantee access to restricted content.
 
