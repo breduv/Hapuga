@@ -1,4 +1,5 @@
 import asyncio
+from html import escape
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from time import monotonic
@@ -6,7 +7,7 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 from aiogram import Bot
-from aiogram.enums import ChatAction
+from aiogram.enums import ChatAction, ParseMode
 from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError
 from aiogram.types import (
     CallbackQuery,
@@ -58,30 +59,29 @@ class BotHandlers:
 
         await msg.answer(text)
 
-    async def handle_help(self, msg: Message) -> None:
+    async def handle_help(self, msg: Message, bot: Bot) -> None:
+        username = (await bot.me()).username or "имя_бота"
+        inline_example = escape(f"@{username} <ссылка>")
         text = (
-            "Что умеет бот:\n"
-            "- ищет треки по названию и скачивает аудио;\n"
-            "- скачивает треки по ссылке Spotify;\n"
-            "- скачивает аудио из YouTube Music;\n"
-            "- скачивает видео из YouTube Shorts, TikTok, Instagram, Pinterest и VK/VK Видео;\n"
-            "- скачивает фотогалереи TikTok;\n"
-            "- для обычных YouTube-ссылок показывает доступные форматы и вариант 'Только звук'.\n\n"
-            "Как пользоваться в личке:\n"
-            "1. Пришли название трека или ссылку.\n"
-            "2. Если бот покажет варианты, выбери нужный кнопкой.\n"
-            "3. Дождись сообщения с аудио, видео или фото.\n\n"
-            "Как пользоваться в любом чате:\n"
-            "1. Напиши @username_бота <ссылка>.\n"
-            "2. Выбери результат 'Скачать'.\n"
-            "3. Бот отправит 'Готовлю файл...' и заменит это сообщение на готовое медиа.\n\n"
-            "Важно:\n"
-            "- приватные, удаленные и недоступные по региону материалы могут не скачаться;\n"
-            "- слишком большие файлы Telegram может не принять;\n"
-            "- если inline-режим просит открыть бота в личке, напиши ему один раз напрямую и повтори запрос."
+            "<b>Как пользоваться Hapuga</b>\n\n"
+            "💬 <b>В личке с ботом</b>\n"
+            "Отправь ссылку или название трека. "
+            "Если бот предложит варианты, выбери нужный кнопкой.\n\n"
+            "📎 <b>Что можно скачать</b>\n"
+            "• <b>Аудио</b> — поиск треков по названию и скачивание по ссылкам "
+            "на треки Spotify и YouTube Music.\n"
+            "• <b>Видео</b> — YouTube, Shorts, TikTok, Instagram, Pinterest и VK Клипы. "
+            "Для обычных видео YouTube можно выбрать качество или <b>Только звук</b>.\n"
+            "• <b>Фото</b> — фотогалереи TikTok.\n\n"
+            "⚡ <b>В другом чате</b>\n"
+            f"Введи <code>{inline_example}</code> в поле сообщения и выбери <b>Скачать</b>. "
+            "Бот заменит сообщение «Готовлю файл...» на готовый файл.\n\n"
+            "В этом режиме из фотогалереи отправится только первое фото. "
+            "Чтобы получить всю галерею или выбрать качество видео YouTube, отправь ссылку в личку. "
+            "Если бот попросит открыть личный чат, нажми там «Старт» и повтори запрос."
         )
 
-        await msg.answer(text)
+        await msg.answer(text, parse_mode=ParseMode.HTML)
 
     async def handle_text(self, msg: Message) -> None:
         try:
